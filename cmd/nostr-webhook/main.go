@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/healthcheck"
@@ -17,6 +18,18 @@ var (
 
 type webhook struct {
 	secret string
+	e      nostrEvent
+}
+
+type nostrEvent struct {
+	Id           string `json:"id"`
+	Pubkey       string `json:"pubkey"`
+	CreatedAtRaw int64  `json:"created_at"`
+	CreatedAt    *time.Time
+	Kind         int      `json:"kind"`
+	Tags         []string `json:"tags"`
+	Content      string   `json:"content"`
+	Sig          string   `json:"sig"`
 }
 
 func main() {
@@ -66,6 +79,14 @@ func (w *webhook) testHandler(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
+	err = w.handleEvent(c)
+	if err != nil {
+		slog.Error("error parsing event", "err", err)
+		return c.SendStatus(fiber.StatusBadRequest)
+	}
+
+	slog.Info("event", "event", w.e)
+
 	return c.SendString("ok")
 }
 
@@ -83,6 +104,17 @@ func bearerAuthentication(c *fiber.Ctx, secret string) error {
 	if parts[0] != "Bearer" || parts[1] != secret {
 		return errors.New("invalid bearer token")
 	}
+
+	return nil
+}
+
+func (w *webhook) handleEvent(c *fiber.Ctx) error {
+	if err := c.BodyParser(&w.e); err != nil {
+		return err
+	}
+
+	createdAt := time.Unix(w.e.CreatedAtRaw, 0)
+	w.e.CreatedAt = &createdAt
 
 	return nil
 }
